@@ -749,7 +749,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 		let mut old = &self.root;
 		loop {
 			match old.insert(key.clone(), value.clone()) {
-				Some(root) => unsafe {match intrinsics::atomic_cxchg_failrelaxed(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
+				Some(root) => unsafe {match intrinsics::atomic_cxchg_relaxed_seqcst(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
 					(_, true) => {
 						//mem::forget(root);
 						return true
@@ -765,7 +765,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 		let mut old = &self.root;
 		loop {
 			match old.update(key.clone(), value.clone(), copy) {
-				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_failrelaxed(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
+				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_relaxed_seqcst(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
 					(_, true) =>{
 						mem::forget(root);
 						 return Some(r)
@@ -781,7 +781,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 		let mut old = &self.root;
 		loop {
 			let (r, root) = old.upsert(key.clone(), value.clone(), copy);
-			unsafe {match intrinsics::atomic_cxchg_failrelaxed(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
+			unsafe {match intrinsics::atomic_cxchg_relaxed_seqcst(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
 				(_, true) =>{
 					mem::forget(root);
 					return r
@@ -795,7 +795,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 		let mut old = &self.root;
 		loop {
 			match old.delete(key, copy) {
-				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_failrelaxed(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
+				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_relaxed_seqcst(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
 					(_, true) =>{
 						mem::forget(root);
 						return Some(r)
@@ -811,7 +811,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 		let mut old = &self.root;
 		loop {
 			match old.remove(i, copy) {
-				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_failrelaxed(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
+				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_relaxed_seqcst(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
 					(_, true) =>{
 						mem::forget(root);
 						return Some(r)
@@ -827,7 +827,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 		let mut old = &self.root;
 		loop {
 			match old.pop_min(copy) {
-				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_failrelaxed(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
+				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_relaxed_seqcst(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
 					(_, true) =>{
 						mem::forget(root);
 						return Some(r)
@@ -843,7 +843,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 		let mut old = &self.root;
 		loop {
 			match old.pop_max(copy) {
-				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_failrelaxed(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
+				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_relaxed_seqcst(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
 					(_, true) =>{
 						mem::forget(root);
 						return Some(r)
@@ -859,7 +859,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 		let mut old = &self.root;
 		loop {
 			match old.action(key, func) {
-				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_failrelaxed(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
+				Some((r, root)) => unsafe {match intrinsics::atomic_cxchg_relaxed_seqcst(&self.root as *const T as *mut usize, *(old as *const T as *const usize), *(&root as *const T as *const usize)) {
 					(_, true) =>{
 						mem::forget(root);
 						return Some(r)
