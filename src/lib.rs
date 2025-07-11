@@ -6,6 +6,7 @@
 #![feature(associated_type_defaults)]
 #![feature(exclusive_range_pattern)]
 #![feature(trait_alias)]
+#![feature(specialization)]
 #[warn(unreachable_patterns)]
 #[allow(
     dead_code,

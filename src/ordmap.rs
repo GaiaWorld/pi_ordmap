@@ -461,6 +461,8 @@
 use std::intrinsics;
 use std::mem;
 use std::cmp::Ordering;
+use std::ops::Deref;
+use crate::asbtree::TreeByteSize;
 //use std::ops::{Generator, GeneratorState};
 
 /// 操作结果值
@@ -482,6 +484,11 @@ pub struct Entry<K: Clone, V: Clone>(pub K, pub V);
 impl<K: Clone, V: Clone> Entry<K, V> {
 	pub fn new(k: K, v: V) -> Self {
 		Entry(k, v)
+	}
+
+	pub fn bytes_size(&self) -> u64 {
+		self.0.tree_bytes_size()
+			+ self.1.tree_bytes_size()
 	}
 }
 
@@ -516,6 +523,8 @@ pub trait ImOrdMap {
 	fn is_empty(&self) -> bool;
 	/// 获得键值条目的数量
 	fn size(&self) -> usize;
+	/// 获取键值条目的字节数量
+	fn bytes_size(&self) -> u64;
 	/// 判断指定的键是否存在
 	fn has(&self, key: &Self::Key) -> bool;
 	/// 获得指定的键对应的值
@@ -563,6 +572,21 @@ pub trait Iter<'a>: ImOrdMap{
 pub struct OrdMap<T:Clone> {
 	root: T,
 }
+
+impl<T: Clone> AsRef<T> for OrdMap<T> {
+	fn as_ref(&self) -> &T {
+		&self.root
+	}
+}
+
+impl<T: Clone> Deref for OrdMap<T> {
+	type Target = T;
+
+	fn deref(&self) -> &T {
+		&self.root
+	}
+}
+
 /// 遍历的键集
 pub struct Keys<'a, T: Iter<'a>>{
 	inner: T::IterType

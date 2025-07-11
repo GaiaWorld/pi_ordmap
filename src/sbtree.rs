@@ -8,15 +8,28 @@ macro_rules! custom_ref {
         use std::mem::zeroed;
         use std::ops::Deref;
 
+        pub trait TreeByteSize: Clone {
+            /// 获取树的字节大小
+            fn tree_bytes_size(&self) -> u64;
+        }
+
+        impl<T: ?Sized + Clone> TreeByteSize for T {
+            //默认实现
+            default fn tree_bytes_size(&self) -> u64 {
+                std::mem::size_of_val(&self) as u64
+            }
+        }
+
         #[inline]
-        pub fn new_tree<K: Clone, V: Clone>(n: Node<K, V>) -> Tree<K, V> {
+        pub fn new_tree<K: TreeByteSize + Clone, V: TreeByteSize + Clone>(n: Node<K, V>) -> Tree<K, V> {
             Some($x::new(n))
         }
         /// 写时复制的sbtree，支持单线程或多线程安全
         pub type Tree<K, V> = Option<$x<Node<K, V>>>;
 
-        pub struct Node<K: Clone, V: Clone> {
+        pub struct Node<K: TreeByteSize + Clone, V: TreeByteSize + Clone> {
             size: usize,
+            bytes_size: u64,
             left: Tree<K, V>,
             entry: Entry<K, V>,
             right: Tree<K, V>,
@@ -35,13 +48,22 @@ macro_rules! custom_ref {
         //     Three(Rc<(usize, Node<K, V>, Entry<K, V>, Node<K, V>, Entry<K, V>, Node<K, V>)>),
         // }
 
-        impl<K: Ord + Clone, V: Clone> Node<K, V> {
+        impl<K: TreeByteSize + Ord + Clone, V: TreeByteSize + Clone> Node<K, V> {
             /**
              * 新建
              */
             fn new(s: usize, l: Tree<K, V>, e: Entry<K, V>, r: Tree<K, V>) -> Self {
+                let mut bytes_size = e.bytes_size();
+                if let Some(node) = &l {
+                    bytes_size += node.bytes_size;
+                }
+                if let Some(node) = &r {
+                    bytes_size += node.bytes_size;
+                }
+
                 Node {
                     size: s,
+                    bytes_size,
                     left: l,
                     entry: e,
                     right: r,
@@ -49,13 +71,21 @@ macro_rules! custom_ref {
             }
             // 节点左旋
             //#[inline]
-            fn left_ratote(size: usize, left: &Tree<K, V>, e: Entry<K, V>, right: &Self) -> Self {
+            fn left_ratote(size: usize, byrtes_size: u64, left: &Tree<K, V>, e: Entry<K, V>, right: &Self) -> Self {
+                let mut lbytes_size = 0;
                 let lsize = match left {
-                    &Some(ref x) => (*x).size,
+                    &Some(ref x) => {
+                        lbytes_size = (*x).bytes_size;
+                        (*x).size
+                    },
                     _ => 0,
                 };
+                let mut rbytes_size = 0;
                 let rsize = match right.left {
-                    Some(ref x) => (*x).size,
+                    Some(ref x) => {
+                        rbytes_size = (*x).bytes_size;
+                        (*x).size
+                    },
                     _ => 0,
                 };
                 Self::new(
@@ -72,13 +102,21 @@ macro_rules! custom_ref {
             }
             // 节点右旋
             //#[inline]
-            fn right_ratote(size: usize, left: &Self, e: Entry<K, V>, right: &Tree<K, V>) -> Self {
+            fn right_ratote(size: usize, bytes_size: u64, left: &Self, e: Entry<K, V>, right: &Tree<K, V>) -> Self {
+                let mut rbytes_size = 0;
                 let rsize = match right {
-                    &Some(ref x) => (*x).size,
+                    &Some(ref x) => {
+                        rbytes_size = (*x).bytes_size;
+                        (*x).size
+                    },
                     _ => 0,
                 };
+                let mut lbytes_size = 0;
                 let lsize = match left.right {
-                    Some(ref x) => (*x).size,
+                    Some(ref x) => {
+                        lbytes_size = (*x).bytes_size;
+                        (*x).size
+                    },
                     _ => 0,
                 };
                 Self::new(
@@ -115,13 +153,21 @@ macro_rules! custom_ref {
                             },
                         };
 
+                        let mut lbytes_size = 0;
                         let l_size = match &left {
-                            &Some(ref l) => l.size,
+                            &Some(ref l) => {
+                                lbytes_size = l.bytes_size;
+                                l.size
+                            },
                             None => 0,
                         };
 
+                        let mut rbytes_size = 0;
                         let r_size = match &right {
-                            &Some(ref r) => r.size,
+                            &Some(ref r) => {
+                                rbytes_size = r.bytes_size;
+                                r.size
+                            },
                             None => 0,
                         };
 
@@ -130,7 +176,7 @@ macro_rules! custom_ref {
                                 Node::new(1 + r_size + l_size, left, n.entry.clone(), right)
                             }
                             ActionResult::Delete => {
-                                match Node::delete(r_size + l_size, &left, &right) {
+                                match Node::delete(r_size + l_size, rbytes_size + lbytes_size, &left, &right) {
                                     Some(e) => Node::new(
                                         e.size,
                                         e.left.clone(),
@@ -163,6 +209,7 @@ macro_rules! custom_ref {
                                 Some(ref rr) if (*rr).size > (*l).size => {
                                     return Self::ratotes(Self::left_ratote(
                                         self.size,
+                                        self.bytes_size,
                                         &self.left,
                                         self.entry.clone(),
                                         &*r,
@@ -175,10 +222,12 @@ macro_rules! custom_ref {
                                 Some(ref rl) if (*rl).size > (*r).size => {
                                     return Self::ratotes(Self::left_ratote(
                                         self.size,
+                                        self.bytes_size,
                                         &self.left,
                                         self.entry.clone(),
                                         &Self::right_ratote(
                                             (*r).size,
+                                            (*r).bytes_size,
                                             &*rl,
                                             (*r).entry.clone(),
                                             &(*r).left,
@@ -192,6 +241,7 @@ macro_rules! custom_ref {
                                 Some(ref ll) if (*ll).size > (*r).size => {
                                     return Self::ratotes(Self::right_ratote(
                                         self.size,
+                                        self.bytes_size,
                                         &*l,
                                         self.entry.clone(),
                                         &self.right,
@@ -204,8 +254,10 @@ macro_rules! custom_ref {
                                 Some(ref lr) if (*lr).size > (*r).size => {
                                     return Self::ratotes(Self::right_ratote(
                                         self.size,
+                                        self.bytes_size,
                                         &Self::left_ratote(
                                             (*l).size,
+                                            (*l).bytes_size,
                                             &(*r).left,
                                             (*l).entry.clone(),
                                             &*lr,
@@ -223,6 +275,7 @@ macro_rules! custom_ref {
                         &Some(ref r) if (*r).size > 1 => {
                             return Self::ratotes(Self::left_ratote(
                                 self.size,
+                                self.bytes_size,
                                 &None,
                                 self.entry.clone(),
                                 &(*r),
@@ -239,6 +292,7 @@ macro_rules! custom_ref {
             //#[inline]
             fn maintain_left(
                 size: usize,
+                bytes_size: u64,
                 left: &Tree<K, V>,
                 e: Entry<K, V>,
                 right: &Tree<K, V>,
@@ -248,7 +302,7 @@ macro_rules! custom_ref {
                         &Some(ref y) => {
                             match (*y).left {
                                 Some(ref z) if (*z).size > (*x).size => {
-                                    return new_tree(Self::right_ratote(size, &*y, e, right))
+                                    return new_tree(Self::right_ratote(size, bytes_size, &*y, e, right))
                                 }
                                 _ => (),
                             };
@@ -256,8 +310,10 @@ macro_rules! custom_ref {
                                 Some(ref z) if (*z).size > (*x).size => {
                                     return new_tree(Self::right_ratote(
                                         size,
+                                        bytes_size,
                                         &Self::left_ratote(
                                             (*y).size,
+                                            (*y).bytes_size,
                                             &(*y).left,
                                             (*y).entry.clone(),
                                             &*z,
@@ -273,7 +329,7 @@ macro_rules! custom_ref {
                     },
                     _ => match left {
                         &Some(ref x) if (*x).size > 1 => {
-                            return new_tree(Self::right_ratote(size, &(*x), e, &None))
+                            return new_tree(Self::right_ratote(size, bytes_size, &(*x), e, &None))
                         }
                         _ => (),
                     },
@@ -285,6 +341,7 @@ macro_rules! custom_ref {
             //#[inline]
             fn maintain_right(
                 size: usize,
+                bytes_size: u64,
                 left: &Tree<K, V>,
                 e: Entry<K, V>,
                 right: &Tree<K, V>,
@@ -294,7 +351,7 @@ macro_rules! custom_ref {
                         &Some(ref y) => {
                             match (*y).right {
                                 Some(ref z) if (*z).size > (*x).size => {
-                                    return new_tree(Self::left_ratote(size, left, e, &(*y)))
+                                    return new_tree(Self::left_ratote(size, bytes_size, left, e, &(*y)))
                                 }
                                 _ => (),
                             };
@@ -302,10 +359,12 @@ macro_rules! custom_ref {
                                 Some(ref z) if (*z).size > (*x).size => {
                                     return new_tree(Self::left_ratote(
                                         size,
+                                        bytes_size,
                                         left,
                                         e,
                                         &Self::right_ratote(
                                             (*y).size,
+                                            (*y).bytes_size,
                                             &*z,
                                             (*y).entry.clone(),
                                             &(*y).right,
@@ -319,7 +378,7 @@ macro_rules! custom_ref {
                     },
                     _ => match right {
                         &Some(ref x) if (*x).size > 1 => {
-                            return new_tree(Self::left_ratote(size, &None, e, &(*x)))
+                            return new_tree(Self::left_ratote(size, bytes_size, &None, e, &(*x)))
                         }
                         _ => (),
                     },
@@ -327,7 +386,7 @@ macro_rules! custom_ref {
                 new_tree(Self::new(size, left.clone(), e, right.clone()))
             }
             // 节点删除操作，选Size大的子树旋转，旋转到叶子节点，然后删除
-            fn delete(size: usize, left: &Tree<K, V>, right: &Tree<K, V>) -> Tree<K, V> {
+            fn delete(size: usize, bytes_size: u64, left: &Tree<K, V>, right: &Tree<K, V>) -> Tree<K, V> {
                 match left {
                     &Some(ref l) => match right {
                         &Some(ref r) => {
@@ -335,24 +394,26 @@ macro_rules! custom_ref {
                                 match l.right {
                                     Some(ref lr) => Self::maintain_right(
                                         size,
+                                        bytes_size,
                                         &l.left,
                                         l.entry.clone(),
-                                        &Self::delete(lr.size + r.size, &l.right, right),
+                                        &Self::delete(lr.size + r.size, lr.bytes_size + r.bytes_size, &l.right, right),
                                     ),
                                     _ => {
-                                        Self::maintain_right(size, &l.left, l.entry.clone(), &right)
+                                        Self::maintain_right(size, bytes_size, &l.left, l.entry.clone(), &right)
                                     }
                                 }
                             } else {
                                 match r.left {
                                     Some(ref rl) => Self::maintain_left(
                                         size,
-                                        &Self::delete(rl.size + l.size, left, &r.left),
+                                        bytes_size,
+                                        &Self::delete(rl.size + l.size, rl.bytes_size + l.bytes_size, left, &r.left),
                                         r.entry.clone(),
                                         &r.right,
                                     ),
                                     _ => {
-                                        Self::maintain_left(size, &left, r.entry.clone(), &r.right)
+                                        Self::maintain_left(size, bytes_size, &left, r.entry.clone(), &r.right)
                                     }
                                 }
                             }
@@ -368,10 +429,16 @@ macro_rules! custom_ref {
                 match self.left {
                     Some(ref n) => {
                         let (v, r) = n.pop_min(copy);
+                        let v_bytes_size = if let Some(v) = &v {
+                            v.bytes_size()
+                        } else {
+                            0
+                        };
                         (
                             v,
                             Self::maintain_right(
                                 self.size - 1,
+                                self.bytes_size.checked_sub(v_bytes_size).unwrap_or(0),
                                 &r,
                                 self.entry.clone(),
                                 &self.right,
@@ -387,9 +454,14 @@ macro_rules! custom_ref {
                 match self.right {
                     Some(ref n) => {
                         let (v, r) = n.pop_max(copy);
+                        let v_bytes_size = if let Some(v) = &v {
+                            v.bytes_size()
+                        } else {
+                            0
+                        };
                         (
                             v,
-                            Self::maintain_left(self.size - 1, &self.left, self.entry.clone(), &r),
+                            Self::maintain_left(self.size - 1, self.bytes_size.checked_sub(v_bytes_size).unwrap_or(0), &self.left, self.entry.clone(), &r),
                         )
                     }
                     _ if copy => (Some(self.entry.clone()), self.left.clone()),
@@ -410,17 +482,28 @@ macro_rules! custom_ref {
                             Some(ref x) => x.remove(i - n.size, copy),
                             _ => panic!("invalid tree"),
                         };
+                        let v_bytes_size = if let Some(v) = &v {
+                            v.bytes_size()
+                        } else {
+                            0
+                        };
                         (
                             v,
-                            Self::maintain_left(self.size - 1, &self.left, self.entry.clone(), &r),
+                            Self::maintain_left(self.size - 1, self.bytes_size.checked_sub(v_bytes_size).unwrap_or(0), &self.left, self.entry.clone(), &r),
                         )
                     }
                     Some(ref n) if i < n.size => {
                         let (v, r) = n.remove(i, copy);
+                        let v_bytes_size = if let Some(v) = &v {
+                            v.bytes_size()
+                        } else {
+                            0
+                        };
                         (
                             v,
                             Self::maintain_right(
                                 self.size - 1,
+                                self.bytes_size.checked_sub(v_bytes_size).unwrap_or(0),
                                 &r,
                                 self.entry.clone(),
                                 &self.right,
@@ -432,16 +515,23 @@ macro_rules! custom_ref {
                             Some(ref x) => x.remove(i - 1, copy),
                             _ => panic!("invalid tree"),
                         };
+                        let v_bytes_size = if let Some(v) = &v {
+                            v.bytes_size()
+                        } else {
+                            0
+                        };
                         (
                             v,
-                            Self::maintain_left(self.size - 1, &self.left, self.entry.clone(), &r),
+                            Self::maintain_left(self.size - 1, self.bytes_size.checked_sub(v_bytes_size).unwrap_or(0), &self.left, self.entry.clone(), &r),
                         )
                     }
                     _ if copy => (
                         Some(self.entry.clone()),
-                        Self::delete(self.size - 1, &self.left, &self.right),
+                        Self::delete(self.size - 1, self.bytes_size.checked_sub(self.entry.bytes_size()).unwrap_or(0), &self.left, &self.right)
                     ),
-                    _ => (None, Self::delete(self.size - 1, &self.left, &self.right)),
+                    _ => {
+                        (None, Self::delete(self.size - 1, self.bytes_size.checked_sub(self.entry.bytes_size()).unwrap_or(0), &self.left, &self.right))
+                    },
                 }
             }
         }
@@ -450,7 +540,7 @@ macro_rules! custom_ref {
         // 	fn fmt(&self, f: &mut Formatter) -> Result;
         // }
 
-        impl<K: Ord + Clone, V: Clone> ImOrdMap for Tree<K, V> {
+        impl<K: TreeByteSize + Ord + Clone, V: TreeByteSize + Clone> ImOrdMap for Tree<K, V> {
             //
             type Key = K;
             type Val = V;
@@ -496,6 +586,15 @@ macro_rules! custom_ref {
             fn size(&self) -> usize {
                 match self {
                     &Some(ref node) => node.size,
+                    _ => 0,
+                }
+            }
+            /**
+             * 获取指定树的字节数
+             */
+            fn bytes_size(&self) -> u64 {
+                match self {
+                    &Some(ref node) => node.bytes_size,
                     _ => 0,
                 }
             }
@@ -668,11 +767,13 @@ macro_rules! custom_ref {
 
             // 递归插入
             fn insert(&self, key: K, value: V) -> Option<Self> {
+                let kv_bytes_size = key.tree_bytes_size() + value.tree_bytes_size();
                 match self {
                     &Some(ref node) => match key.cmp(&node.entry.0) {
                         Ordering::Greater => match node.right.insert(key, value) {
                             Some(r) => Some(Node::maintain_right(
                                 node.size + 1,
+                                node.bytes_size + kv_bytes_size,
                                 &node.left,
                                 node.entry.clone(),
                                 &r,
@@ -682,6 +783,7 @@ macro_rules! custom_ref {
                         Ordering::Less => match node.left.insert(key, value) {
                             Some(r) => Some(Node::maintain_left(
                                 node.size + 1,
+                                node.bytes_size + kv_bytes_size,
                                 &r,
                                 node.entry.clone(),
                                 &node.right,
@@ -745,6 +847,7 @@ macro_rules! custom_ref {
             }
             // 递归放入
             fn upsert(&self, key: K, value: V, copy: bool) -> (Option<Option<V>>, Self) {
+                let kv_bytes_size = key.tree_bytes_size() + value.tree_bytes_size();
                 match self {
                     &Some(ref node) => match key.cmp(&node.entry.0) {
                         Ordering::Greater => match node.right.upsert(key, value, copy) {
@@ -752,6 +855,7 @@ macro_rules! custom_ref {
                                 None,
                                 Node::maintain_right(
                                     node.size + 1,
+                                    node.bytes_size + kv_bytes_size,
                                     &node.left,
                                     node.entry.clone(),
                                     &r,
@@ -772,6 +876,7 @@ macro_rules! custom_ref {
                                 None,
                                 Node::maintain_left(
                                     node.size + 1,
+                                    node.bytes_size + kv_bytes_size,
                                     &r,
                                     node.entry.clone(),
                                     &node.right,
@@ -818,34 +923,42 @@ macro_rules! custom_ref {
                 match self {
                     &Some(ref node) => match key.cmp(&node.entry.0) {
                         Ordering::Greater => match node.right.delete(key, copy) {
-                            Some((v, r)) => Some((
-                                v,
-                                Node::maintain_left(
-                                    node.size - 1,
-                                    &node.left,
-                                    node.entry.clone(),
-                                    &r,
-                                ),
-                            )),
+                            Some((v, r)) => {
+                                let new_bytes_size = node.bytes_size.checked_sub(v.tree_bytes_size()).unwrap_or(0);
+                                Some((
+                                    v,
+                                    Node::maintain_left(
+                                        node.size - 1,
+                                        new_bytes_size,
+                                        &node.left,
+                                        node.entry.clone(),
+                                        &r,
+                                    ),
+                                ))
+                            },
                             _ => None,
                         },
                         Ordering::Less => match node.left.delete(key, copy) {
-                            Some((v, r)) => Some((
-                                v,
-                                Node::maintain_right(
-                                    node.size - 1,
-                                    &r,
-                                    node.entry.clone(),
-                                    &node.right,
-                                ),
-                            )),
+                            Some((v, r)) => {
+                                let new_bytes_size = node.bytes_size.checked_sub(v.tree_bytes_size()).unwrap_or(0);
+                                Some((
+                                    v,
+                                    Node::maintain_right(
+                                        node.size - 1,
+                                        new_bytes_size,
+                                        &r,
+                                        node.entry.clone(),
+                                        &node.right,
+                                    ),
+                                ))
+                            },
                             _ => None,
                         },
                         _ if copy => Some((
                             Some(node.entry.1.clone()),
-                            Node::delete(node.size - 1, &node.left, &node.right),
+                            Node::delete(node.size - 1, node.bytes_size.checked_sub(node.entry.bytes_size()).unwrap_or(0), &node.left, &node.right),
                         )),
-                        _ => Some((None, Node::delete(node.size - 1, &node.left, &node.right))),
+                        _ => Some((None, Node::delete(node.size - 1, node.bytes_size.checked_sub(node.entry.bytes_size()).unwrap_or(0), &node.left, &node.right))),
                     },
                     _ => None,
                 }
@@ -890,6 +1003,7 @@ macro_rules! custom_ref {
                                 ActionResultType::Insert,
                                 Node::maintain_right(
                                     node.size + 1,
+                                    node.bytes_size + r.tree_bytes_size(),
                                     &node.left,
                                     node.entry.clone(),
                                     &r,
@@ -908,6 +1022,7 @@ macro_rules! custom_ref {
                                 ActionResultType::Delete,
                                 Node::maintain_left(
                                     node.size - 1,
+                                    node.bytes_size.checked_sub(r.tree_bytes_size()).unwrap_or(0),
                                     &node.left,
                                     node.entry.clone(),
                                     &r,
@@ -920,6 +1035,7 @@ macro_rules! custom_ref {
                                 ActionResultType::Insert,
                                 Node::maintain_left(
                                     node.size + 1,
+                                    node.bytes_size + r.tree_bytes_size(),
                                     &r,
                                     node.entry.clone(),
                                     &node.right,
@@ -938,6 +1054,7 @@ macro_rules! custom_ref {
                                 ActionResultType::Delete,
                                 Node::maintain_right(
                                     node.size - 1,
+                                    node.bytes_size.checked_sub(r.tree_bytes_size()).unwrap_or(0),
                                     &r,
                                     node.entry.clone(),
                                     &node.right,
@@ -957,7 +1074,7 @@ macro_rules! custom_ref {
                             )),
                             ActionResult::Delete => Some((
                                 ActionResultType::Delete,
-                                Node::delete(node.size - 1, &node.left, &node.right),
+                                Node::delete(node.size - 1, node.bytes_size.checked_sub(node.entry.tree_bytes_size()).unwrap_or(0), &node.left, &node.right),
                             )),
                             _ => None,
                         },
