@@ -525,6 +525,8 @@ pub trait ImOrdMap {
 	fn size(&self) -> usize;
 	/// 获取键值条目的字节数量
 	fn bytes_size(&self) -> u64;
+	/// 获取表完整的有序表的大小，包括表结构和键值条目
+	fn full_bytes_size(&self) -> u64;
 	/// 判断指定的键是否存在
 	fn has(&self, key: &Self::Key) -> bool;
 	/// 获得指定的键对应的值

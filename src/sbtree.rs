@@ -599,6 +599,13 @@ macro_rules! custom_ref {
                 }
             }
             /**
+             * 获取完整的表字节大小
+             */
+            fn full_bytes_size(&self) -> u64 {
+                self.bytes_size() +
+                self.size() as u64 * (std::mem::size_of::<usize>() as u64 + std::mem::size_of::<u64>() as u64)
+            }
+            /**
              * 检查指定的Key在树中是否存在
              */
             fn has(&self, key: &K) -> bool {
