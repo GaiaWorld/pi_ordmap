@@ -462,6 +462,7 @@ use std::intrinsics;
 use std::mem;
 use std::cmp::Ordering;
 use std::ops::Deref;
+use std::sync::atomic::AtomicUsize;
 use crate::asbtree::TreeByteSize;
 //use std::ops::{Generator, GeneratorState};
 
@@ -569,10 +570,31 @@ pub trait Iter<'a>: ImOrdMap{
 	fn iter(&self, key: Option<&Self::Key>, descending: bool) -> Self::IterType;
 }
 
+static ORDMAP_ADD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static ORDMAP_SUB_COUNTER: AtomicUsize = AtomicUsize::new(0);
+pub fn ordmap_shared_count() -> usize {
+	ORDMAP_ADD_COUNTER
+		.load(std::sync::atomic::Ordering::Acquire)
+		.checked_sub(ORDMAP_SUB_COUNTER.load(std::sync::atomic::Ordering::Acquire))
+		.unwrap_or(0)
+}
+
 /// 有序表
-#[derive(Clone)]
 pub struct OrdMap<T:Clone> {
 	root: T,
+}
+
+impl<T: Clone> Clone for OrdMap<T> {
+	fn clone(&self) -> Self {
+		ORDMAP_ADD_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Release);
+		OrdMap { root: self.root.clone() }
+	}
+}
+
+impl<T: Clone> Drop for OrdMap<T> {
+	fn drop(&mut self) {
+		ORDMAP_SUB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Release);
+	}
 }
 
 impl<T: Clone> AsRef<T> for OrdMap<T> {
@@ -621,6 +643,7 @@ impl<'a, T: ImOrdMap + Clone + Iter<'a>> OrdMap<T> {
 	/// 新建
 
 	pub fn new(map: T) -> Self {
+		ORDMAP_ADD_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Release);
 		OrdMap {
 			root: map,
 		}

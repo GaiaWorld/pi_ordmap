@@ -27,12 +27,27 @@ macro_rules! custom_ref {
         /// 写时复制的sbtree，支持单线程或多线程安全
         pub type Tree<K, V> = Option<$x<Node<K, V>>>;
 
+        static NODE_ADD_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        static NODE_SUB_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        pub fn node_shared_count() -> usize {
+            NODE_ADD_COUNTER
+                .load(std::sync::atomic::Ordering::Acquire)
+                .checked_sub(NODE_SUB_COUNTER.load(std::sync::atomic::Ordering::Acquire))
+                .unwrap_or(0)
+        }
+
         pub struct Node<K: TreeByteSize + Clone, V: TreeByteSize + Clone> {
             size: usize,
             bytes_size: u64,
             left: Tree<K, V>,
             entry: Entry<K, V>,
             right: Tree<K, V>,
+        }
+
+        impl<K: TreeByteSize + Clone, V: TreeByteSize + Clone> Drop for Node<K, V> {
+            fn drop(&mut self) {
+                NODE_SUB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
         }
 
         // pub type Root<K, V> = Option<Node<K, V>>;
@@ -61,6 +76,7 @@ macro_rules! custom_ref {
                     bytes_size += node.bytes_size;
                 }
 
+                NODE_ADD_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Release);
                 Node {
                     size: s,
                     bytes_size,
@@ -1106,12 +1122,28 @@ macro_rules! custom_ref {
                 }
             }
         }
+
+        static ITERTREE_ADD_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        static ITERTREE_SUB_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        pub fn itertree_shared_count() -> usize {
+            ITERTREE_ADD_COUNTER
+                .load(std::sync::atomic::Ordering::Acquire)
+                .checked_sub(ITERTREE_SUB_COUNTER.load(std::sync::atomic::Ordering::Acquire))
+                .unwrap_or(0)
+        }
+
         //升序或降序引用迭代器
         pub struct IterTree<'a, K: 'a + Clone, V: 'a + Clone> {
             arr: [*const Node<K, V>; 32],
             len: usize,
             next_fn: fn(&mut IterTree<'a, K, V>) -> Option<&'a Entry<K, V>>,
             marker: PhantomData<&'a Node<K, V>>,
+        }
+
+        impl<'a, K: 'a + Clone, V: 'a + Clone> Drop for IterTree<'a, K, V> {
+            fn drop(&mut self) {
+                ITERTREE_SUB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Release);
+            }
         }
 
         unsafe impl<'a, K: 'a + Clone, V: 'a + Clone> Send for IterTree<'a, K, V> {}
@@ -1199,6 +1231,7 @@ macro_rules! custom_ref {
                     },
                     _ => {}
                 }
+                ITERTREE_ADD_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Release);
                 it
             }
         }
